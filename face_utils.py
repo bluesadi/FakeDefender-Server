@@ -1,7 +1,7 @@
 import cv2
 import numpy as np
 
-import torch
+from torch import torch
 from skimage.transform import SimilarityTransform
 
 from data import cfg_re50
@@ -50,7 +50,7 @@ def norm_crop(img, landmark, image_size=112):
 
 
 class FaceDetector:
-    def __init__(self, device="cuda", confidence_threshold=0.8):
+    def __init__(self, device="cpu", confidence_threshold=0.8):
         self.device = device
         self.confidence_threshold = confidence_threshold
 

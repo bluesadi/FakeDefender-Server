@@ -1,12 +1,12 @@
 import os
 import time
 
-import cv2
+from cv2 import cv2
 import numpy as np
 from collections import defaultdict
 
 from PIL import Image
-import torch
+from torch import torch
 import torch.nn.functional as F
 from torchvision import transforms as T
 
@@ -28,7 +28,7 @@ class DFDCLoader:
         self.face_limit = face_limit
 
         self.record = defaultdict(list)
-        self.score = defaultdict(lambda: 0.5)
+        self.score = defaultdict(lambda: 0.5) #最终的预测概率
         self.feedback_queue = []
 
     def iter_one_face(self):
@@ -42,6 +42,7 @@ class DFDCLoader:
                     reader.grab()
 
                 success, img = reader.read()
+                # 检测这一帧是否存在
                 if not success:
                     break
 
@@ -114,34 +115,34 @@ def main():
     torch.set_grad_enabled(False)
     torch.backends.cudnn.benchmark = True
 
-    test_dir = "../input/deepfake-detection-challenge/test_videos"
-    csv_path = "../input/deepfake-detection-challenge/sample_submission.csv"
+    test_dir = "./input/deepfake-detection-challenge/test_videos"
+    csv_path = "./input/deepfake-detection-challenge/sample_submission.csv"
 
     face_detector = FaceDetector()
-    face_detector.load_checkpoint("../input/dfdc-pretrained-2/RetinaFace-Resnet50-fixed.pth")
+    face_detector.load_checkpoint("./input/dfdc-pretrained-2/RetinaFace-Resnet50-fixed.pth")
     loader = DFDCLoader(test_dir, face_detector, T.ToTensor())
 
     model1 = xception(num_classes=2, pretrained=False)
-    ckpt = torch.load("../input/dfdc-pretrained-2/xception-hg-2.pth")
+    ckpt = torch.load("./input/dfdc-pretrained-2/xception-hg-2.pth", map_location=torch.device('cpu'))
     model1.load_state_dict(ckpt["state_dict"])
-    model1 = model1.cuda()
+    model1 = model1.cpu()
     model1.eval()
 
-    model2 = WSDAN(num_classes=2, M=8, net="xception", pretrained=False).cuda()
-    ckpt = torch.load("../input/dfdc-pretrained-2/ckpt_x.pth")
+    model2 = WSDAN(num_classes=2, M=8, net="xception", pretrained=False).cpu()
+    ckpt = torch.load("./input/dfdc-pretrained-2/ckpt_x.pth", map_location=torch.device('cpu'))
     model2.load_state_dict(ckpt["state_dict"])
     model2.eval()
 
-    model3 = WSDAN(num_classes=2, M=8, net="efficientnet", pretrained=False).cuda()
-    ckpt = torch.load("../input/dfdc-pretrained-2/ckpt_e.pth")
+    model3 = WSDAN(num_classes=2, M=8, net="efficientnet", pretrained=False).cpu()
+    ckpt = torch.load("./input/dfdc-pretrained-2/ckpt_e.pth", map_location=torch.device('cpu'))
     model3.load_state_dict(ckpt["state_dict"])
     model3.eval()
 
-    zhq_nm_avg = torch.Tensor([.4479, .3744, .3473]).view(1, 3, 1, 1).cuda()
-    zhq_nm_std = torch.Tensor([.2537, .2502, .2424]).view(1, 3, 1, 1).cuda()
+    zhq_nm_avg = torch.Tensor([.4479, .3744, .3473]).view(1, 3, 1, 1).cpu()
+    zhq_nm_std = torch.Tensor([.2537, .2502, .2424]).view(1, 3, 1, 1).cpu()
 
     for batch in loader:
-        batch = batch.cuda(non_blocking=True)
+        batch = batch.cpu()
 
         i1 = F.interpolate(batch, size=299, mode="bilinear")
         i1.sub_(0.5).mul_(2.0)
