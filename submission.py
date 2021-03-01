@@ -9,7 +9,9 @@ from face_utils import norm_crop, FaceDetector
 from model_def import WSDAN, xception
 
 from face_marker import FaceMarker
-
+from socket import *
+import json
+import base64
 
 class DFDCImageLoader:
     def __init__(self, face_detector, transform=None):
@@ -111,18 +113,59 @@ if __name__ == "__main__":
     face_detector.load_checkpoint("./input/dfdc-pretrained-2/RetinaFace-Resnet50-fixed.pth")
 
     loader = DFDCImageLoader(face_detector, T.ToTensor())
-    img = cv2.imread('./input/test3.png')
-    faces, scores = loader.predict(img)
-    print(faces)
-    for i in range(len(faces)):
-        face = faces[i]
-        fakeProb = scores[i]
-        faceX = int(face[0].item())
-        faceY = int(face[1].item())
-        faceW = int(face[2].item()) - faceX
-        faceH = int(face[3].item()) - faceY
-        faceMarker = FaceMarker(img, faceX, faceY, faceW, faceH, fakeProb)
-        faceMarker.mark()
-    cv2.imwrite('./input/dump.png', img)
-    cv2.imshow('hh', img)
-    cv2.waitKey()
+    # img = cv2.imread('./input/test3.png')
+
+    serverSocket = socket(AF_INET, SOCK_STREAM)
+    serverSocket.bind((gethostname(), 85))
+
+    serverSocket.listen(3)
+    print("The server is running...")
+
+    while True:
+        conSocket, address = serverSocket.accept()
+        json_str = conSocket.recv(400000000).decode()
+        request = json.loads(json_str, strict=False)
+        uuid = request["uuid"]
+        img_encode = base64.b64decode(request["image"])
+        img = cv2.imdecode(np.frombuffer(img_encode, np.uint8), cv2.IMREAD_COLOR)
+
+        faces, scores = loader.predict(img)
+        print(faces)
+        # for i in range(len(faces)):
+        #     face = faces[i]
+        #     fakeProb = scores[i]
+        #     faceX = int(face[0].item())
+        #     faceY = int(face[1].item())
+        #     faceW = int(face[2].item()) - faceX
+        #     faceH = int(face[3].item()) - faceY
+        #     faceMarker = FaceMarker(img, faceX, faceY, faceW, faceH, fakeProb)
+        #     faceMarker.mark()
+        # cv2.imwrite('./input/dump.png', img)
+        # cv2.imshow('hh', img)
+        # cv2.waitKey()
+
+        # Serialize json data of response
+        response = {
+            "uuid":uuid,
+            "faceNum":len(faces)
+        }
+        if len(faces)!=0:
+            faceList = []
+            for i in range(len(faces)):
+                face = faces[i]
+                faceList.append({
+                    "x1":int(face[0].item()),
+                    "y1":int(face[1].item()),
+                    "x2":int(face[0].item()),
+                    "y2":int(face[0].item()),
+                    "score":scores[i].item()
+                })
+            response["faces"] = faceList
+
+        print(json.dumps(response))
+
+        conSocket.send(json.dumps(response).encode())
+
+        conSocket.close()
+
+
