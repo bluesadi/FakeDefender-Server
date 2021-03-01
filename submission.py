@@ -109,6 +109,18 @@ if __name__ == "__main__":
     torch.set_grad_enabled(False)
     torch.backends.cudnn.benchmark = True
 
+
+    '''img = cv2.imread('D:\\test.png')
+    img_encode = cv2.imencode('.png', img)[1]
+    file = open('D:\\base64-2.txt', 'wb')
+
+    base = base64.b64encode(img_encode)
+    file.write(base)
+    img = cv2.imdecode(np.frombuffer(base64.b64decode(base), np.uint8), cv2.IMREAD_COLOR)
+    cv2.imshow('hh', img)
+    cv2.waitKey()
+    exit(0)'''
+
     face_detector = FaceDetector()
     face_detector.load_checkpoint("./input/dfdc-pretrained-2/RetinaFace-Resnet50-fixed.pth")
 
@@ -116,21 +128,19 @@ if __name__ == "__main__":
     # img = cv2.imread('./input/test3.png')
 
     serverSocket = socket(AF_INET, SOCK_STREAM)
-    serverSocket.bind((gethostname(), 85))
+    serverSocket.bind(("127.0.0.1", 23333))
 
     serverSocket.listen(3)
     print("The server is running...")
 
     while True:
         conSocket, address = serverSocket.accept()
-        json_str = conSocket.recv(400000000).decode()
+        json_str = conSocket.recv(4294967296).decode(encoding='utf-8')
         request = json.loads(json_str, strict=False)
         uuid = request["uuid"]
-        img_encode = base64.b64decode(request["image"])
+        img_encode = base64.b64decode(request["image"].encode())
         img = cv2.imdecode(np.frombuffer(img_encode, np.uint8), cv2.IMREAD_COLOR)
-
         faces, scores = loader.predict(img)
-        print(faces)
         # for i in range(len(faces)):
         #     face = faces[i]
         #     fakeProb = scores[i]
@@ -156,8 +166,8 @@ if __name__ == "__main__":
                 faceList.append({
                     "x1":int(face[0].item()),
                     "y1":int(face[1].item()),
-                    "x2":int(face[0].item()),
-                    "y2":int(face[0].item()),
+                    "x2":int(face[2].item()),
+                    "y2":int(face[3].item()),
                     "score":scores[i].item()
                 })
             response["faces"] = faceList
