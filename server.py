@@ -47,8 +47,8 @@ class DFDCImageLoader:
             repeated = False
             for out_i in ind:
                 out_face = faces[out_i]
-                if abs(face[0].item() - out_face[0].item()) < 10 and abs(
-                        face[1].item() - out_face[1].item()) < 10 and abs(face[2].item() - out_face[2].item()) < 10:
+                if abs(face[0].item() - out_face[0].item()) < 50 and abs(
+                        face[1].item() - out_face[1].item()) < 50 and abs(face[2].item() - out_face[2].item()) < 50:
                     repeated = True
                     break
             if not repeated:
@@ -89,14 +89,10 @@ class DFDCImageLoader:
     def predict(self, img):
         boxes, landms = self.face_detector.detect(img)
         if boxes.shape[0] == 0:
-            return 0.0
-        areas = (boxes[:, 3] - boxes[:, 1]) * (boxes[:, 2] - boxes[:, 0])
-        # order = areas.argmax()
+            return boxes, []
         ind = self.filterFaces(boxes)
         boxes = boxes[ind]
         landms = landms[ind]
-        # boxes = boxes[order]
-        # landms = landms[order]
         scores = []
         for landmark in landms:
             landmarks = landmark.detach().numpy().reshape(5, 2).astype(np.int)
@@ -120,8 +116,10 @@ def hello():
 @app.route('/predict', methods=['POST', 'GET'])
 def predict():
     if request.method == 'POST':
-        data = request.get_json()
+        data = request.get_data()
+        print(type(data))
         data = json.loads(data, strict=False)
+        print(type(data))
         uuid = data["uuid"]
         img_encode = base64.b64decode(data["image"])
         img = cv2.imdecode(np.frombuffer(img_encode, np.uint8), cv2.IMREAD_COLOR)
@@ -131,18 +129,18 @@ def predict():
             "uuid": uuid,
             "faceNum": len(faces)
         }
+        faceList = []
         if len(faces) != 0:
-            faceList = []
             for i in range(len(faces)):
                 face = faces[i]
                 faceList.append({
                     "x1": int(face[0].item()),
                     "y1": int(face[1].item()),
-                    "x2": int(face[0].item()),
-                    "y2": int(face[0].item()),
+                    "x2": int(face[2].item()),
+                    "y2": int(face[3].item()),
                     "score": scores[i].item()
                 })
-            response["faces"] = faceList
+        response["faces"] = faceList
 
         print(json.dumps(response))
         print("The server is still running...")
