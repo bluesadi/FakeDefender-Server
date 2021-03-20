@@ -40,15 +40,26 @@ class DFDCImageLoader:
         self.model2 = model2
         self.model3 = model3
 
+    def commonArea(self, face1, face2):
+        x = [face1[0].item(), face1[2].item(), face2[0].item(), face2[2].item()]
+        y = [face1[1].item(), face1[3].item(), face2[1].item(), face2[3].item()]
+        if max(x[0], x[1]) < min(x[2], x[3]) or min(x[0], x[1]) > max(x[2], x[3]) or \
+            max(y[0], y[1]) < min(y[2], y[3]) or min(y[0], y[1]) > max(y[2], y[3]):
+            return 0
+        x.sort()
+        y.sort()
+        return (x[2] - x[1]) * (y[2] - y[1])
+
+
     def filterFaces(self, faces):
         ind = []
         for i in range(len(faces)):
-            face = faces[i]
+            cur_face = faces[i]
             repeated = False
-            for out_i in ind:
-                out_face = faces[out_i]
-                if abs(face[0].item() - out_face[0].item()) < 50 and abs(
-                        face[1].item() - out_face[1].item()) < 50 and abs(face[2].item() - out_face[2].item()) < 50:
+            for sel_i in ind:
+                sel_face = faces[sel_i]
+                cur_face_area = abs(cur_face[0].item() - cur_face[2].item()) * abs(cur_face[1].item() - cur_face[3].item())
+                if self.commonArea(cur_face, sel_face) / cur_face_area > 0.5:
                     repeated = True
                     break
             if not repeated:
