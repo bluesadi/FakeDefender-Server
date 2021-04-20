@@ -4,14 +4,14 @@ from PIL import Image
 from torch import torch
 import torch.nn.functional as F
 from torchvision import transforms as T
-
 from face_utils import norm_crop, FaceDetector
 from model_def import WSDAN, xception
-
-from face_marker import FaceMarker
-from socket import *
+from flask import Flask, jsonify, request
 import json
 import base64
+
+app = Flask(__name__)
+
 
 class DFDCImageLoader:
     def __init__(self, face_detector, transform=None):
@@ -40,15 +40,26 @@ class DFDCImageLoader:
         self.model2 = model2
         self.model3 = model3
 
+    def commonArea(self, face1, face2):
+        x = [face1[0].item(), face1[2].item(), face2[0].item(), face2[2].item()]
+        y = [face1[1].item(), face1[3].item(), face2[1].item(), face2[3].item()]
+        if max(x[0], x[1]) < min(x[2], x[3]) or min(x[0], x[1]) > max(x[2], x[3]) or \
+            max(y[0], y[1]) < min(y[2], y[3]) or min(y[0], y[1]) > max(y[2], y[3]):
+            return 0
+        x.sort()
+        y.sort()
+        return (x[2] - x[1]) * (y[2] - y[1])
+
+
     def filterFaces(self, faces):
         ind = []
         for i in range(len(faces)):
-            face = faces[i]
+            cur_face = faces[i]
             repeated = False
-            for out_i in ind:
-                out_face = faces[out_i]
-                if abs(face[0].item() - out_face[0].item()) < 10 and abs(
-                        face[1].item() - out_face[1].item()) < 10 and abs(face[2].item() - out_face[2].item()) < 10:
+            for sel_i in ind:
+                sel_face = faces[sel_i]
+                cur_face_area = abs(cur_face[0].item() - cur_face[2].item()) * abs(cur_face[1].item() - cur_face[3].item())
+                if self.commonArea(cur_face, sel_face) / cur_face_area > 0.5:
                     repeated = True
                     break
             if not repeated:
@@ -73,15 +84,15 @@ class DFDCImageLoader:
 
         i1 = F.interpolate(batch, size=299, mode="bilinear")
         i1.sub_(0.5).mul_(2.0)
-        o1 = model1(i1).softmax(-1)[:, 1].cpu().numpy()
+        o1 = model1(i1).softmax(-1)[:, 1].cpu().detach().numpy()
 
         i2 = (batch - self.zhq_nm_avg) / self.zhq_nm_std
         o2, _, _ = model2(i2)
-        o2 = o2.softmax(-1)[:, 1].cpu().numpy()
+        o2 = o2.softmax(-1)[:, 1].cpu().detach().numpy()
 
         i3 = F.interpolate(i2, size=300, mode="bilinear")
         o3, _, _ = model3(i3)
-        o3 = o3.softmax(-1)[:, 1].cpu().numpy()
+        o3 = o3.softmax(-1)[:, 1].cpu().detach().numpy()
 
         out = 0.2 * o1 + 0.7 * o2 + 0.1 * o3
         return out[0]
@@ -89,93 +100,63 @@ class DFDCImageLoader:
     def predict(self, img):
         boxes, landms = self.face_detector.detect(img)
         if boxes.shape[0] == 0:
-            return 0.0
-        areas = (boxes[:, 3] - boxes[:, 1]) * (boxes[:, 2] - boxes[:, 0])
-        # order = areas.argmax()
+            return boxes, []
         ind = self.filterFaces(boxes)
         boxes = boxes[ind]
         landms = landms[ind]
-        # boxes = boxes[order]
-        # landms = landms[order]
         scores = []
         for landmark in landms:
-            landmarks = landmark.numpy().reshape(5, 2).astype(np.int)
+            landmarks = landmark.detach().numpy().reshape(5, 2).astype(np.int)
             scores.append(self.predictOneFace(img, landmarks))
 
         return boxes, scores
 
+# load model
+torch.set_grad_enabled(False)
+torch.backends.cudnn.benchmark = True
+face_detector = FaceDetector()
+face_detector.load_checkpoint("./input/dfdc-pretrained-2/RetinaFace-Resnet50-fixed.pth")
+loader = DFDCImageLoader(face_detector, T.ToTensor())
+print("loader ok")
 
-if __name__ == "__main__":
-    torch.set_grad_enabled(False)
-    torch.backends.cudnn.benchmark = True
+@app.route('/')
+def hello():
+    return "Welcome to Deepfake Server."
 
 
-    '''img = cv2.imread('D:\\test.png')
-    img_encode = cv2.imencode('.png', img)[1]
-    file = open('D:\\base64-2.txt', 'wb')
-
-    base = base64.b64encode(img_encode)
-    file.write(base)
-    img = cv2.imdecode(np.frombuffer(base64.b64decode(base), np.uint8), cv2.IMREAD_COLOR)
-    cv2.imshow('hh', img)
-    cv2.waitKey()
-    exit(0)'''
-
-    face_detector = FaceDetector()
-    face_detector.load_checkpoint("./input/dfdc-pretrained-2/RetinaFace-Resnet50-fixed.pth")
-
-    loader = DFDCImageLoader(face_detector, T.ToTensor())
-    # img = cv2.imread('./input/test3.png')
-
-    serverSocket = socket(AF_INET, SOCK_STREAM)
-    serverSocket.bind(("127.0.0.1", 23333))
-
-    serverSocket.listen(3)
-    print("The server is running...")
-
-    while True:
-        conSocket, address = serverSocket.accept()
-        json_str = conSocket.recv(4294967296).decode(encoding='utf-8')
-        request = json.loads(json_str, strict=False)
-        uuid = request["uuid"]
-        img_encode = base64.b64decode(request["image"].encode())
+@app.route('/predict', methods=['POST', 'GET'])
+def predict():
+    if request.method == 'POST':
+        data = request.get_data()
+        print(type(data))
+        data = json.loads(data, strict=False)
+        print(type(data))
+        uuid = data["uuid"]
+        img_encode = base64.b64decode(data["image"])
         img = cv2.imdecode(np.frombuffer(img_encode, np.uint8), cv2.IMREAD_COLOR)
         faces, scores = loader.predict(img)
-        # for i in range(len(faces)):
-        #     face = faces[i]
-        #     fakeProb = scores[i]
-        #     faceX = int(face[0].item())
-        #     faceY = int(face[1].item())
-        #     faceW = int(face[2].item()) - faceX
-        #     faceH = int(face[3].item()) - faceY
-        #     faceMarker = FaceMarker(img, faceX, faceY, faceW, faceH, fakeProb)
-        #     faceMarker.mark()
-        # cv2.imwrite('./input/dump.png', img)
-        # cv2.imshow('hh', img)
-        # cv2.waitKey()
 
-        # Serialize json data of response
         response = {
-            "uuid":uuid,
-            "faceNum":len(faces)
+            "uuid": uuid,
+            "faceNum": len(faces)
         }
-        if len(faces)!=0:
-            faceList = []
+        faceList = []
+        if len(faces) != 0:
             for i in range(len(faces)):
                 face = faces[i]
                 faceList.append({
-                    "x1":int(face[0].item()),
-                    "y1":int(face[1].item()),
-                    "x2":int(face[2].item()),
-                    "y2":int(face[3].item()),
-                    "score":scores[i].item()
+                    "x1": int(face[0].item()),
+                    "y1": int(face[1].item()),
+                    "x2": int(face[2].item()),
+                    "y2": int(face[3].item()),
+                    "score": scores[i].item()
                 })
-            response["faces"] = faceList
+        response["faces"] = faceList
 
         print(json.dumps(response))
-
-        conSocket.send(json.dumps(response).encode())
-
-        conSocket.close()
+        print("The server is still running...")
+        return jsonify(response)
 
 
+if __name__ == "__main__":
+    app.run()
